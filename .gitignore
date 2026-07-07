@@ -1,0 +1,14 @@
+# Local issue-tracker state (not part of the plugin)
+.beads/
+.dolt/
+*.db
+.beads-credential-key
+
+# Local runtime / agent state (not part of the plugin)
+.repo-review/
+.remember/
+.hermes-bughunt/
+node_modules/
+*.log
+.probe-events.log
+.opencode/

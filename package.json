@@ -1,0 +1,52 @@
+{
+  "name": "@mcrescenzo/opencode-loop",
+  "version": "0.1.0",
+  "description": "opencode plugin providing a loop tool that re-runs prompt text on a recurring or self-paced interval.",
+  "type": "module",
+  "main": "./loop.js",
+  "exports": {
+    ".": "./loop.js"
+  },
+  "files": [
+    "loop.js",
+    "loop-core.js",
+    "diagnostics.js",
+    "commands",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md"
+  ],
+  "license": "MIT",
+  "author": "Michael Crescenzo",
+  "publishConfig": { "access": "public" },
+  "engines": { "node": ">=20.11.0" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mcrescenzo/opencode-loop"
+  },
+  "homepage": "https://github.com/mcrescenzo/opencode-loop#readme",
+  "bugs": {
+    "url": "https://github.com/mcrescenzo/opencode-loop/issues"
+  },
+  "opencode": {
+    "tested": "1.17.13",
+    "pluginApi": "^1.17.7"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "loop"
+  ],
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "smoke:package": "node scripts/package-smoke.mjs",
+    "prepack": "npm test",
+    "prepublishOnly": "npm test"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.17.7"
+  }
+}
