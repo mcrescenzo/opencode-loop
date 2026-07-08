@@ -1,17 +1,25 @@
 # loop
 
-An unofficial opencode plugin that re-runs a prompt in **your own session** on a
-recurring interval, or at a cadence the model paces itself — until you stop it.
-It drives the current session by re-injecting prompt text each time the session
-goes idle, carrying the conversation context forward.
+Keep an opencode session working automatically — on a fixed interval or at a
+pace the model sets for itself — instead of re-typing the same prompt every
+time the session goes idle. `/loop` re-injects your prompt into **your own
+session** each time a turn finishes, carrying the full conversation context
+forward, until the task is done, you stop it, or a safety cap trips.
 
-This project is a community plugin and is not affiliated with or endorsed by
-opencode.ai.
+## Why use loop
 
-The loop is **in-memory only**: closing or restarting opencode ends every active
-loop with no respawn.
+- **Keep an agent grinding on a task.** Refactor a module, chase a flaky test,
+  or work through a checklist across many turns without re-typing the prompt
+  each time the session goes idle.
+- **Run recurring checks on a cadence.** Re-run the test suite, a build, or a
+  monitoring script every few minutes and get a fresh report each time.
+- **Let the model pace itself.** Skip the fixed interval for open-ended or
+  exploratory work and let the model call `schedule_wakeup` only when it
+  actually has something worth checking back on.
+- **Walk away without babysitting.** The loop pauses itself on a permission
+  prompt or an error, and hard caps guarantee it can never run forever.
 
-## Installation / registration
+## Installation
 
 The plugin is a self-contained ESM module whose entry file is `loop.js`. Register
 it in your `opencode.json` under the singular `"plugin"` key.
@@ -52,57 +60,9 @@ candidate was smoke-tested against opencode `1.17.13`. opencode does not install
 dependencies for path-spec plugins, so run `bun install` or `npm install` in this
 directory before using a path registration during development.
 
-## Hooks
+## Quick start
 
-`loop.js` registers five opencode plugin hooks:
-
-| Hook | Purpose |
-|---|---|
-| `config` | Registers the bundled `/loop` command (`commands/loop.md`) if no other plugin or user command already owns it. |
-| `event` | Watches for the session going idle (or a permission prompt being asked/answered/rejected) to drive the next iteration, pause, or stop of an active loop. |
-| `command.execute.before` | Intercepts `/loop ...` invocations owned by this plugin, parses the arguments, and rewrites the command output into the fixed-interval or dynamic loop prompt. |
-| `tool` | Exposes the `schedule_wakeup` tool that dynamic-mode loops call to request the next iteration. |
-| `dispose` | Clears this plugin instance's timers and runtime registration when the instance is torn down. |
-
-### Dependency license review
-
-This package declares one runtime dependency, `@opencode-ai/plugin@^1.17.7`.
-The current local install resolves the direct dependency and its transitive
-runtime packages (`@opencode-ai/sdk@1.17.7`, `effect@4.0.0-beta.74`, and
-`zod@4.1.8`) with `MIT` license metadata in each installed `package.json`.
-Refresh that inventory from approved package metadata whenever dependency
-versions change; `package.json` and `bun.lock` alone do not carry the full
-transitive license record.
-
-## Running the tests
-
-The suite uses `node:test` with no test runner dependency. From this directory:
-
-```sh
-node --test tests/*.test.mjs
-```
-
-`npm test` runs the same command and is also the `prepack`/`prepublishOnly`
-guard. The pure decision logic lives in `loop-core.js` (no
-`@opencode-ai/plugin` import), so most behavior is unit-testable without
-opencode infrastructure.
-
-Run `npm run smoke:package` separately before a release: it packs the npm
-tarball, extracts it into a scratch directory, and imports the packed
-`loop.js` to verify the shipped hook shape and command interception. It is
-not part of `npm test`/`prepack` so that packing under `--dry-run` or
-`--ignore-scripts` never spawns its own nested `npm pack`.
-
-Use Node, not `bun test`, for validation. The plugin runs inside opencode's Bun
-runtime, but this repository's test suite targets Node's `node:test` mock-timer
-APIs; Bun `1.3.13` currently fails those timer tests with
-`ERR_NOT_IMPLEMENTED`. `bun.lock` is kept for local Bun/path-plugin dependency
-installs. There is intentionally no committed `package-lock.json`; npm package
-consumers should resolve this plugin through their own application lockfile, and
-the public CI workflow uses `npm install --ignore-scripts --no-audit --no-fund`
-before `npm test`.
-
-## `/loop` command syntax
+### `/loop` command syntax
 
 | Form | Behavior |
 |---|---|
@@ -120,10 +80,37 @@ Examples:
 /loop stop
 ```
 
-Looped content is re-injected as prompt text. Re-running slash commands such as
-`/loop 5m /some-command` is not part of the v1 support contract unless a future
-opencode smoke test proves that injected leading-slash text executes as a
-command.
+Looped content is re-injected as plain prompt text. Re-running slash commands
+(e.g. `/loop 5m /some-command`) isn't supported yet.
+
+### What you'll see
+
+Running:
+
+```text
+/loop 5m run the test suite and report any failures
+```
+
+starts the loop and immediately runs iteration 1 with that prompt — the
+command's own turn *is* the first iteration, so the session just gets to work.
+A toast confirms `Loop started (fixed, 300s).`. From then on, every time the
+session goes idle, the plugin waits until at least 5 minutes have passed since
+the last run and re-injects the same prompt, carrying conversation context
+forward, until you stop it or a safety cap trips.
+
+Checking in with:
+
+```text
+/loop status
+```
+
+prints something like:
+
+```text
+Active /loop: fixed (300s), status running.
+Iterations: 1/50. Elapsed: 12s.
+Prompt: run the test suite and report any failures
+```
 
 ### Safety
 
@@ -137,6 +124,15 @@ command.
   cannot dispatch the next prompt through opencode, it stops that loop instead
   and emits a diagnostic record.
 - The loop drives the current session, carrying conversation context forward.
+
+## For AI agents
+
+If you're the model executing `/loop`, this plugin intercepts the command
+before it reaches you — seeing this command's raw markdown as a normal prompt
+means the plugin isn't loaded. In dynamic mode, call `schedule_wakeup` with a
+`delaySeconds` (60–3600) to continue the loop past this turn, or just finish
+the turn to end it. Iteration caps, wall-clock caps, and permission/error
+pausing are enforced by the plugin, not by you.
 
 ## Diagnostics environment variables
 
@@ -159,13 +155,31 @@ Windows: %LOCALAPPDATA%\opencode\plugin-diagnostics\<project>-<hash>\loop\
 Diagnostic files are named `loop-YYYY-MM-DD-<pid>.jsonl` and rotate before they
 exceed roughly 1 MB.
 
-## Support
+## Hooks
 
-This is a community plugin, not an official opencode feature. Report bugs and
+`loop.js` registers five opencode plugin hooks — `config`, `event`,
+`command.execute.before`, `tool`, and `dispose`. See the full hook-by-hook
+breakdown, including exactly what each one does, in
+<https://github.com/mcrescenzo/opencode-loop/blob/main/docs/design.md>.
+
+## Development
+
+Run `npm test` (`node --test tests/*.test.mjs`) before opening a pull request;
+use Node, not `bun test`, for validation. There's intentionally no committed `package-lock.json`.
+The full contributor workflow — dependency license review, `npm run
+smoke:package`, and CI details — lives in
+<https://github.com/mcrescenzo/opencode-loop/blob/main/CONTRIBUTING.md>.
+
+## Support & Status
+
+This is an unofficial opencode plugin, a community project not affiliated with or endorsed by
+opencode.ai. Public compatibility is limited to the opencode/plugin API
+versions documented above until newer versions are tested. Report bugs and
 compatibility issues at
-<https://github.com/mcrescenzo/opencode-loop/issues>. Public compatibility is
-limited to the versions documented above until newer opencode/plugin versions
-are tested.
+<https://github.com/mcrescenzo/opencode-loop/issues>.
+
+The loop is **in-memory only**: closing or restarting opencode ends every
+active loop with no respawn.
 
 To uninstall, remove `@mcrescenzo/opencode-loop` or the local `loop.js` path
 from the `plugin` array in `opencode.json`, then restart opencode. Existing

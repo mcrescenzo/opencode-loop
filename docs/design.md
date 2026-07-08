@@ -219,6 +219,28 @@ what makes these real unit tests rather than mocks of everything.
 - After it lands, **restart opencode** — running sessions keep old config (per AGENTS.md).
 - Surgical changes per AGENTS.md; no unrelated refactoring.
 
+## Appendix A: Hook reference
+
+`loop.js` registers five opencode plugin hooks:
+
+| Hook | Purpose |
+|---|---|
+| `config` | Registers the bundled `/loop` command (`commands/loop.md`) if no other plugin or user command already owns it. |
+| `event` | Watches for the session going idle (or a permission prompt being asked/answered/rejected) to drive the next iteration, pause, or stop of an active loop. |
+| `command.execute.before` | Intercepts `/loop ...` invocations owned by this plugin, parses the arguments, and rewrites the command output into the fixed-interval or dynamic loop prompt. |
+| `tool` | Exposes the `schedule_wakeup` tool that dynamic-mode loops call to request the next iteration. |
+| `dispose` | Clears this plugin instance's timers and runtime registration when the instance is torn down. |
+
+## Appendix B: Dependency license review
+
+This package declares one runtime dependency, `@opencode-ai/plugin@^1.17.7`.
+The current local install resolves the direct dependency and its transitive
+runtime packages (`@opencode-ai/sdk@1.17.7`, `effect@4.0.0-beta.74`, and
+`zod@4.1.8`) with `MIT` license metadata in each installed `package.json`.
+Refresh that inventory from approved package metadata whenever dependency
+versions change; `package.json` and `bun.lock` alone do not carry the full
+transitive license record.
+
 ## 11. Open / deferred items
 
 - Whether injected leading-slash text executes as an OpenCode command — unsupported in v1

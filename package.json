@@ -1,6 +1,6 @@
 {
   "name": "@mcrescenzo/opencode-loop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "opencode plugin providing a loop tool that re-runs prompt text on a recurring or self-paced interval.",
   "type": "module",
   "main": "./loop.js",
@@ -21,8 +21,12 @@
   ],
   "license": "MIT",
   "author": "Michael Crescenzo",
-  "publishConfig": { "access": "public" },
-  "engines": { "node": ">=20.11.0" },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.11.0"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/mcrescenzo/opencode-loop"
