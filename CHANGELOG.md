@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Add plugin tuple options for safety caps: `maxIterations` accepts 1–50
+  (default 50), and `maxWallClockMinutes` accepts 1–1440 (default 60).
+- Invalid fields now independently fall back to safe defaults with redacted
+  warning diagnostics. Effective caps are immutable for each loop lifetime and
+  are shown by `/loop status`.
+
 ## 0.1.1 - 2026-07-08
 
 - Documentation-only release: README now leads with the value proposition, adds

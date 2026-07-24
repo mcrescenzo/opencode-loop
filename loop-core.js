@@ -8,9 +8,50 @@ export const DELAY_MIN_SECONDS = 60;
 export const DELAY_MAX_SECONDS = 3600;
 export const INTERVAL_MIN_MS = 5_000;
 export const INTERVAL_MAX_MS = 24 * 60 * 60 * 1000;
-export const DEFAULT_CAPS = { maxIterations: 50, maxWallClockMs: 60 * 60 * 1000 };
+export const DEFAULT_CAPS = Object.freeze({ maxIterations: 50, maxWallClockMs: 60 * 60 * 1000 });
+export const MAX_WALL_CLOCK_MINUTES = 1440;
 export const LOOP_PROMPT_MAX_CHARS = 20_000;
 export const DISPLAY_PROMPT_MAX_CHARS = 1_000;
+
+export function resolveLoopCaps(options = {}) {
+  const warnings = [];
+  const maxIterationsOption = options?.maxIterations;
+  const maxWallClockMinutesOption = options?.maxWallClockMinutes;
+  const iterationsValid = validPositiveInteger(
+    maxIterationsOption,
+    DEFAULT_CAPS.maxIterations,
+  );
+  const wallClockValid = validPositiveInteger(
+    maxWallClockMinutesOption,
+    MAX_WALL_CLOCK_MINUTES,
+  );
+  const maxIterations = iterationsValid ? maxIterationsOption : DEFAULT_CAPS.maxIterations;
+  const maxWallClockMinutes = wallClockValid
+    ? maxWallClockMinutesOption
+    : DEFAULT_CAPS.maxWallClockMs / 60_000;
+
+  if (maxIterationsOption !== undefined && !iterationsValid) {
+    warnings.push({
+      field: "maxIterations",
+      message: "Invalid maxIterations option; using the safe default of 50.",
+    });
+  }
+  if (maxWallClockMinutesOption !== undefined && !wallClockValid) {
+    warnings.push({
+      field: "maxWallClockMinutes",
+      message: "Invalid maxWallClockMinutes option; using the safe default of 60 minutes.",
+    });
+  }
+
+  return {
+    caps: Object.freeze({ maxIterations, maxWallClockMs: maxWallClockMinutes * 60_000 }),
+    warnings,
+  };
+}
+
+function validPositiveInteger(value, maximum) {
+  return Number.isInteger(value) && value > 0 && value <= maximum;
+}
 
 export function createMonotonicClock(options = {}) {
   const wallNow = options.wallNow ?? (() => Date.now());
@@ -116,7 +157,11 @@ export function createRegistry() {
         generation: 1, awaitingIdle: true, iterationCount: 1,
         startedAt, lastFireAt: startedAt,
         status: "running", pauseReason: null,
-        pendingWakeup: null, timer: null, timerDueAt: null, pausedTimer: null, caps,
+        pendingWakeup: null, timer: null, timerDueAt: null, pausedTimer: null,
+        caps: Object.freeze({
+          maxIterations: caps.maxIterations,
+          maxWallClockMs: caps.maxWallClockMs,
+        }),
       };
       map.set(sessionID, state);
       return state;
@@ -186,6 +231,7 @@ export function statusText(state, nowMs = Date.now()) {
   return [
     `Active /loop: ${mode}, status ${state.status}.`,
     `Iterations: ${state.iterationCount}/${state.caps.maxIterations}. Elapsed: ${elapsed}s.`,
+    `Limits: ${state.caps.maxIterations} iterations, ${state.caps.maxWallClockMs / 60_000}m wall clock.`,
     `Prompt: ${sanitizeDisplayText(state.loopPrompt)}`,
   ].join("\n");
 }

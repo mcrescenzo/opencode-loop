@@ -76,6 +76,7 @@ opencode surface is a thin shell.
 | Unit | Responsibility | Isolation |
 |---|---|---|
 | `parseLoopArgs(argString)` | `[interval] <prompt>` and subcommands `stop`/`status` → structured intent. | pure |
+| `resolveLoopCaps(options)` | Validates plugin tuple options independently and returns immutable effective caps plus redacted warnings. | pure |
 | `loopRegistry` | In-memory `Map<sessionID, LoopState>`; `start`/`stop`/`get`; generation bump. | pure |
 | `decideNextAction(state, event, now)` | The brain: state + idle/permission/error event + clock → an Action. | pure (fake clock) |
 | `buildIterationPrompt(state)` | Builds the text to re-fire; appends the dynamic-mode control block. | pure |
@@ -123,7 +124,8 @@ Then each `session.idle` → `decideNextAction` → either `scheduleNextFire` + 
   - dynamic + no `pendingWakeup` for the current generation ⇒ `completed` (model chose to stop).
 - `{ kind: 'pause', reason }` — `permission` or `error`.
 
-Caps are checked before scheduling and before timer-triggered prompt injection:
+Caps are resolved once per plugin instance and copied into an immutable snapshot
+when a loop starts. They are checked before scheduling and before timer-triggered prompt injection:
 `iterationCount ≥ maxIterations` → `max-iterations`; `now − startedAt ≥ maxWallClockMs`
 or a candidate delay crossing that deadline → `max-wallclock`.
 
@@ -163,9 +165,16 @@ Claude.
   → pause (no firing); resume on permission reply. If a timer was already armed, permission
   resume re-arms that consumed-idle wakeup instead of resetting `awaitingIdle`. Prevents
   spamming a blocked session without weakening duplicate-idle deduplication.
-- **Hard caps.** Defaults: **`maxIterations = 50`**,
-  **`maxWallClockMs = 60 min`**. These are hardcoded v1 defaults, not user-configurable
-  settings. On hit: terminate + notify.
+- **Hard caps.** Defaults: **`maxIterations = 50`** and
+  **`maxWallClockMs = 60 min`**. Plugin tuple options accept positive integer
+  `maxIterations` values from 1–50 and `maxWallClockMinutes` values from 1–1440.
+  Invalid fields independently fall back to their default and emit a warning
+  diagnostic without retaining or recording the rejected value. Each loop keeps
+  its start-time cap snapshot for its lifetime. On hit: terminate + notify.
+- **Wall-clock semantics.** Permission pauses continue counting against elapsed
+  wall time. A longer cap permits longer loops but does not guarantee 50
+  iterations; completion, errors, rejected permissions, restart/session closure,
+  or manual stop can terminate earlier.
 - **Control.** `/loop stop` (clears timers, sets `stopped`); `/loop status` (mode, iteration
   count, elapsed). `stop`/`status` are handled in-plugin and short-circuit
   the model.
@@ -217,6 +226,9 @@ what makes these real unit tests rather than mocks of everything.
 - Plugin entrypoint: `loop.js`; command docs: `commands/loop.md`; tests:
   `tests/*.test.mjs`.
 - After it lands, **restart opencode** — running sessions keep old config (per AGENTS.md).
+- Configure caps through the plugin tuple, for example
+  `["./plugins/loop/loop.js", { "maxIterations": 50, "maxWallClockMinutes": 1440 }]`.
+  Restart after option changes; already active loops retain their start-time cap snapshot.
 - Surgical changes per AGENTS.md; no unrelated refactoring.
 
 ## Appendix A: Hook reference

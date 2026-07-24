@@ -7,7 +7,8 @@
 import {
   DEFAULT_CAPS, buildIterationPrompt, bumpGeneration, clampDelaySeconds,
   createMonotonicClock, createRegistry, decideNextAction, getSessionID, isIdleEvent,
-  normalizeEvent, parseLoopArgs, registerLoopCommand, sanitizeDisplayText, statusText,
+  normalizeEvent, parseLoopArgs, registerLoopCommand, resolveLoopCaps, sanitizeDisplayText,
+  statusText,
 } from "./loop-core.js";
 import { createLoopDiagnostics } from "./diagnostics.js";
 
@@ -159,12 +160,23 @@ function buildPromptAsyncRequest(ctx, sessionID, parts) {
     : { path: { id: sessionID }, query: { directory: ctx.directory }, body: { parts } };
 }
 
-export const LoopPlugin = async (ctx) => {
+export const LoopPlugin = async (ctx, options = {}) => {
   // Load the opencode tool helper lazily so that importing this entry never pulls
   // @opencode-ai/plugin into the module graph (see the top-of-file note). opencode awaits the
   // factory, so the tool definition is ready before any hook is invoked.
   const { tool } = await import("@opencode-ai/plugin");
   const diagnostics = createLoopDiagnostics(ctx);
+  const { caps, warnings } = resolveLoopCaps(options);
+  for (const warning of warnings) {
+    await diagnostics.emit({
+      level: "warn",
+      event: "invalid_plugin_option",
+      message: warning.message,
+      operation: "resolve_plugin_options",
+      outcome: "fallback",
+      data: { field: warning.field },
+    });
+  }
   let disposed = false;
   let loopCommandRegistrationChecked = false;
   let loopCommandOwned = true;
@@ -397,8 +409,8 @@ export const LoopPlugin = async (ctx) => {
       return;
     }
     // start: replace any existing loop, then make THIS turn iteration 1
-    if (intent.mode === "fixed" && intent.intervalMs >= DEFAULT_CAPS.maxWallClockMs) {
-      const minutes = Math.round(DEFAULT_CAPS.maxWallClockMs / 60_000);
+    if (intent.mode === "fixed" && intent.intervalMs >= caps.maxWallClockMs) {
+      const minutes = Math.round(caps.maxWallClockMs / 60_000);
       replaceParts(
         output,
         displayPart(input),
@@ -410,7 +422,7 @@ export const LoopPlugin = async (ctx) => {
     clearLoopTimer(existing);
     const state = registry.start(sessionID, {
       mode: intent.mode, intervalMs: intent.intervalMs ?? null,
-      loopPrompt: intent.prompt, startedAt: now(), caps: DEFAULT_CAPS,
+      loopPrompt: intent.prompt, startedAt: now(), caps,
     });
     const label = intent.mode === "fixed" ? `fixed, ${Math.round(intent.intervalMs / 1000)}s` : "dynamic";
     await toast(ctx.client, `Loop started (${label}).`, "success");

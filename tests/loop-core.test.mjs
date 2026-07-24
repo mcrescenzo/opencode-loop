@@ -1,6 +1,60 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseLoopArgs, parseInterval, clampDelaySeconds, createRegistry, bumpGeneration, decideNextAction, buildIterationPrompt, DYNAMIC_CONTROL_BLOCK, createMonotonicClock, sanitizeDisplayText, LOOP_PROMPT_MAX_CHARS, statusText } from "../loop-core.js";
+import { parseLoopArgs, parseInterval, clampDelaySeconds, createRegistry, bumpGeneration, decideNextAction, buildIterationPrompt, DYNAMIC_CONTROL_BLOCK, createMonotonicClock, sanitizeDisplayText, LOOP_PROMPT_MAX_CHARS, resolveLoopCaps, statusText } from "../loop-core.js";
+
+test("resolveLoopCaps applies defaults and valid maximums", () => {
+  assert.deepStrictEqual(resolveLoopCaps(), {
+    caps: { maxIterations: 50, maxWallClockMs: 3_600_000 },
+    warnings: [],
+  });
+  assert.deepStrictEqual(resolveLoopCaps({ maxIterations: 50, maxWallClockMinutes: 1440 }), {
+    caps: { maxIterations: 50, maxWallClockMs: 86_400_000 },
+    warnings: [],
+  });
+});
+
+test("resolveLoopCaps falls back per invalid field without discarding valid options", () => {
+  for (const invalid of ["10", 1.5, 0, -1, Number.NaN, Infinity, 51]) {
+    const { caps, warnings } = resolveLoopCaps({
+      maxIterations: invalid,
+      maxWallClockMinutes: 1440,
+    });
+    assert.deepStrictEqual(caps, { maxIterations: 50, maxWallClockMs: 86_400_000 });
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0].field, "maxIterations");
+    assert.deepStrictEqual(Object.keys(warnings[0]).sort(), ["field", "message"]);
+  }
+
+  for (const invalid of ["1440", 1.5, 0, -1, Number.NaN, Infinity, 1441]) {
+    const { caps, warnings } = resolveLoopCaps({
+      maxIterations: 25,
+      maxWallClockMinutes: invalid,
+    });
+    assert.deepStrictEqual(caps, { maxIterations: 25, maxWallClockMs: 3_600_000 });
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0].field, "maxWallClockMinutes");
+  }
+});
+
+test("resolved and registry caps are immutable snapshots", () => {
+  const options = { maxIterations: 25, maxWallClockMinutes: 120 };
+  const resolved = resolveLoopCaps(options);
+  options.maxIterations = 1;
+  options.maxWallClockMinutes = 1;
+  assert.deepStrictEqual(resolved.caps, { maxIterations: 25, maxWallClockMs: 7_200_000 });
+
+  const callerCaps = { ...resolved.caps };
+  const state = createRegistry().start("s1", {
+    mode: "fixed",
+    intervalMs: 30_000,
+    loopPrompt: "go",
+    startedAt: 0,
+    caps: callerCaps,
+  });
+  callerCaps.maxIterations = 1;
+  assert.deepStrictEqual(state.caps, { maxIterations: 25, maxWallClockMs: 7_200_000 });
+  assert.equal(Object.isFrozen(state.caps), true);
+});
 
 test("createMonotonicClock resists wall-clock and monotonic source regressions", () => {
   let wall = 1_000;

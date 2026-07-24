@@ -35,6 +35,29 @@ by a path relative to the `opencode.json` file that declares it:
 }
 ```
 
+To change the safety caps, use the plugin tuple form:
+
+```json
+{
+  "plugin": [
+    [
+      "./plugins/loop/loop.js",
+      {
+        "maxIterations": 50,
+        "maxWallClockMinutes": 1440
+      }
+    ]
+  ]
+}
+```
+
+`maxIterations` must be a positive integer from 1 to 50 and defaults to 50.
+`maxWallClockMinutes` must be a positive integer from 1 to 1440 and defaults to
+60. Invalid fields independently fall back to their safe default and produce a
+redacted warning diagnostic; a valid field still applies. Restart opencode after
+changing these options. Each loop snapshots the effective caps when it starts,
+so later caller-side mutation cannot change an active loop.
+
 For the npm package, install it where opencode resolves plugins and register the
 package name:
 
@@ -66,7 +89,7 @@ directory before using a path registration during development.
 
 | Form | Behavior |
 |---|---|
-| `/loop <interval> <prompt>` | **Fixed-interval.** `<interval>` is `<n>s\|m\|h` (e.g. `5m`), clamped to 5s–24h and rejected when it cannot fit within the 60-minute loop time limit. Idle-gated: the next iteration fires at least `<interval>` after the previous one finishes, so an overrun delays rather than stacks. |
+| `/loop <interval> <prompt>` | **Fixed-interval.** `<interval>` is `<n>s\|m\|h` (e.g. `5m`), clamped to 5s–24h and rejected when it cannot fit within the effective wall-clock limit. Idle-gated: the next iteration fires at least `<interval>` after the previous one finishes, so an overrun delays rather than stacks. |
 | `/loop <prompt>` | **Dynamic / self-pacing.** Each iteration may call the `schedule_wakeup` tool with `delaySeconds` (clamped to 60–3600) to continue. Finishing a turn **without** calling `schedule_wakeup` ends the loop. |
 | `/loop status` | Show the active loop: mode, iteration count, and elapsed time. Alias: `info`. |
 | `/loop stop` | Stop the active loop. Aliases: `off`, `cancel`, `clear`, `end`. |
@@ -109,13 +132,16 @@ prints something like:
 ```text
 Active /loop: fixed (300s), status running.
 Iterations: 1/50. Elapsed: 12s.
+Limits: 50 iterations, 60m wall clock.
 Prompt: run the test suite and report any failures
 ```
 
 ### Safety
 
-- A loop stops automatically after **50 iterations** or **60 minutes**.
-  The time cap is enforced before scheduling or injecting the next iteration.
+- A loop stops automatically at its effective iteration or wall-clock cap. The
+  defaults are **50 iterations** and **60 minutes**; plugin options may narrow
+  iterations to 1–50 or set wall time to 1–1440 minutes. The time cap is
+  enforced before scheduling or injecting the next iteration.
 - It **pauses** while a permission prompt is open and **resumes** when the prompt
   is answered; a **rejected** permission ends the loop.
 - Closing or deleting a session clears that session's in-memory loop state.
@@ -124,6 +150,9 @@ Prompt: run the test suite and report any failures
   cannot dispatch the next prompt through opencode, it stops that loop instead
   and emits a diagnostic record.
 - The loop drives the current session, carrying conversation context forward.
+- A longer wall-clock cap does not guarantee 50 iterations. Model completion,
+  errors, rejected permissions, restart or session closure, and manual stop can
+  all end a loop sooner.
 
 ## For AI agents
 

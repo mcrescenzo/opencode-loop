@@ -29,8 +29,8 @@ function fakeClient(calls = {}) {
     session: { promptAsync: async (req) => { calls.prompts.push(req); return {}; } },
   };
 }
-async function pluginFor(calls) {
-  return LoopPlugin({ directory: "/tmp/x", client: fakeClient(calls) });
+async function pluginFor(calls, options) {
+  return LoopPlugin({ directory: "/tmp/x", client: fakeClient(calls) }, options);
 }
 
 function deferred() {
@@ -1062,6 +1062,28 @@ test("command start (fixed) registers iteration 1 and rewrites parts to the plai
   assert.equal(outText(out), "do the thing");          // no control block in fixed mode
 });
 
+test("plugin options snapshot configured caps into registry state", async () => {
+  const options = { maxIterations: 25, maxWallClockMinutes: 1440 };
+  const hooks = await pluginFor({}, options);
+  options.maxIterations = 1;
+  options.maxWallClockMinutes = 1;
+
+  await hooks["command.execute.before"](commandInput("s1", "90m go"), emptyOutput());
+
+  const state = LoopPlugin.__innerTest.registry.get("s1");
+  assert.deepStrictEqual(state.caps, { maxIterations: 25, maxWallClockMs: 86_400_000 });
+  assert.equal(Object.isFrozen(state.caps), true);
+});
+
+test("default plugin command behavior keeps 50 iteration and 60 minute caps", async () => {
+  const hooks = await pluginFor({});
+  await hooks["command.execute.before"](commandInput("s1", "30s go"), emptyOutput());
+  assert.deepStrictEqual(LoopPlugin.__innerTest.registry.get("s1").caps, {
+    maxIterations: 50,
+    maxWallClockMs: 3_600_000,
+  });
+});
+
 test("command start (dynamic) appends the control block to iteration 1", async () => {
   const hooks = await pluginFor({});
   const out = emptyOutput();
@@ -1131,6 +1153,14 @@ test("/loop status surfaces the status via a race-free toast", async () => {
   await hooks["command.execute.before"](commandInput("s1", "30s go"), emptyOutput());
   await hooks["command.execute.before"](commandInput("s1", "status"), emptyOutput());
   assert.match(calls.toasts.at(-1).message, /Active \/loop/);
+});
+
+test("/loop status reports effective configured limits", async () => {
+  const hooks = await pluginFor({}, { maxIterations: 25, maxWallClockMinutes: 1440 });
+  await hooks["command.execute.before"](commandInput("s1", "30s go"), emptyOutput());
+  const out = emptyOutput();
+  await hooks["command.execute.before"](commandInput("s1", "status"), out);
+  assert.match(outText(out), /Limits: 25 iterations, 1440m wall clock\./);
 });
 
 test("/loop status preserves an already-armed timer", async (t) => {
@@ -1283,6 +1313,42 @@ test("command start rejects fixed intervals that cannot fit within the wall-cloc
   await hooks["command.execute.before"](commandInput("s1", "90m go"), out);
   assert.equal(LoopPlugin.__innerTest.registry.has("s1"), false);
   assert.match(outText(out), /under 60 minutes/);
+});
+
+test("configured wall-clock cap admits only fixed intervals with room for a follow-up", async () => {
+  const hooks = await pluginFor({}, { maxWallClockMinutes: 1440 });
+
+  const admitted = emptyOutput();
+  await hooks["command.execute.before"](commandInput("s1", "90m go"), admitted);
+  assert.equal(LoopPlugin.__innerTest.registry.has("s1"), true);
+  assert.equal(outText(admitted), "go");
+
+  const rejected = emptyOutput();
+  await hooks["command.execute.before"](commandInput("s2", "24h go"), rejected);
+  assert.equal(LoopPlugin.__innerTest.registry.has("s2"), false);
+  assert.match(outText(rejected), /under 1440 minutes/);
+});
+
+test("invalid plugin options emit redacted warnings and preserve valid independent fields", async () => {
+  await withDiagnosticsEnv(async (diagRoot) => {
+    const secret = "token=abc123456789";
+    const invalid = { detail: secret };
+    const hooks = await pluginFor({}, {
+      maxIterations: invalid,
+      maxWallClockMinutes: 1440,
+    });
+    await hooks["command.execute.before"](commandInput("s1", "90m go"), emptyOutput());
+
+    assert.deepStrictEqual(LoopPlugin.__innerTest.registry.get("s1").caps, {
+      maxIterations: 50,
+      maxWallClockMs: 86_400_000,
+    });
+    const records = (await diagnosticLines(diagRoot)).map((line) => JSON.parse(line));
+    const warning = records.find((record) => record.event === "invalid_plugin_option");
+    assert.equal(warning.level, "warn");
+    assert.equal(warning.data.field, "maxIterations");
+    assert.doesNotMatch(JSON.stringify(records), /abc123456789/);
+  });
 });
 
 test("invalid fixed restart preserves the existing active loop", async (t) => {
